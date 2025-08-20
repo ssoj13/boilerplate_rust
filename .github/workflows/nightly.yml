@@ -156,7 +156,7 @@ jobs:
           fi
 
       - name: Upload Valgrind report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: valgrind-report
@@ -282,7 +282,7 @@ jobs:
 
 
       - name: Upload performance report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: performance-report
           path: performance.md
@@ -322,7 +322,7 @@ jobs:
           fi
 
       - name: Upload nightly report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: nightly-report
           path: nightly-report.md
