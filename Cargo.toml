@@ -1,0 +1,27 @@
+[package]
+name = "egui_opengl_app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+egui = "0.29"
+egui_glow = "0.29"
+egui-winit = "0.29"
+glow = "0.14"
+glutin = "0.32"
+glutin-winit = "0.5"
+winit = "0.30"
+raw-window-handle = "0.6"
+clap = { version = "4.5", features = ["derive"] }
+nalgebra-glm = "0.19"
+bytemuck = "1.19"
+rfd = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dirs = "5.0"
+
+[dev-dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true

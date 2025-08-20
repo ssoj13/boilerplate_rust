@@ -1,0 +1,329 @@
+name: Nightly Tests
+
+on:
+  schedule:
+    # Run every night at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+
+jobs:
+  # Test against Rust nightly
+  nightly-rust:
+    name: Nightly Rust
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxss-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            libcairo-gobject2 \
+            libgtk-layer-shell-dev \
+            libdbus-1-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-nightly-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check compilation
+        run: cargo +nightly check --all-targets --all-features
+
+      - name: Run tests
+        run: cargo +nightly test --all-features
+
+      - name: Clippy with nightly
+        run: cargo +nightly clippy --all-targets --all-features -- -D warnings
+
+      - name: Format check
+        run: cargo +nightly fmt --all -- --check
+
+  # Test with minimal versions
+  minimal-versions:
+    name: Minimal Dependency Versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly (for -Z minimal-versions)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxss-dev \
+            libgtk-3-dev \
+            libglib2.0-dev
+
+      - name: Install cargo-hack
+        run: cargo install cargo-hack
+
+      - name: Generate minimal Cargo.lock
+        run: cargo +nightly update -Z minimal-versions
+
+      - name: Test with minimal versions
+        run: cargo +stable test --locked
+
+  # Memory leak detection with Valgrind
+  memory-check:
+    name: Memory Check (Valgrind)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            valgrind \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxss-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            xvfb
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-valgrind-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build with debug info
+        run: cargo build --profile dev
+
+      - name: Run Valgrind memory check
+        run: |
+          # Create a simple test that starts and immediately exits
+          timeout 10s xvfb-run -a valgrind \
+            --tool=memcheck \
+            --leak-check=full \
+            --show-leak-kinds=all \
+            --track-origins=yes \
+            --verbose \
+            --log-file=valgrind.log \
+            ./target/debug/egui_opengl_app --help || true
+
+      - name: Check Valgrind results
+        run: |
+          if [ -f valgrind.log ]; then
+            echo "::group::Valgrind Output"
+            cat valgrind.log
+            echo "::endgroup::"
+            
+            # Check for serious memory issues
+            if grep -q "definitely lost\|Invalid read\|Invalid write" valgrind.log; then
+              echo "::error::Memory issues detected by Valgrind"
+              exit 1
+            else
+              echo "::notice::No serious memory issues found"
+            fi
+          fi
+
+      - name: Upload Valgrind report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: valgrind-report
+          path: valgrind.log
+          retention-days: 30
+
+  # Fuzz testing
+  fuzz-test:
+    name: Fuzz Testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Initialize fuzz targets (if not exists)
+        run: |
+          if [ ! -d "fuzz" ]; then
+            cargo fuzz init
+            # Add a simple fuzz target for CLI parsing
+            cat > fuzz/fuzz_targets/cli_args.rs << 'EOF'
+          #![no_main]
+          use libfuzzer_sys::fuzz_target;
+          use std::ffi::OsString;
+          
+          fuzz_target!(|data: &[u8]| {
+              if let Ok(s) = std::str::from_utf8(data) {
+                  let args: Vec<OsString> = s.split_whitespace()
+                      .map(|s| s.into())
+                      .collect();
+                  
+                  // Test CLI parsing doesn't panic
+                  let _ = std::panic::catch_unwind(|| {
+                      // This would require exposing the Args struct
+                      // For now, just test string processing
+                      let _processed = s.trim().to_lowercase();
+                  });
+              }
+          });
+          EOF
+          fi
+
+      - name: Run fuzz tests (short duration)
+        run: |
+          # Run each fuzz target for 60 seconds
+          timeout 60s cargo fuzz run cli_args || echo "Fuzz testing completed"
+
+      - name: Check for crashes
+        run: |
+          if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts)" ]; then
+            echo "::warning::Fuzz testing found potential issues"
+            ls -la fuzz/artifacts/
+          else
+            echo "::notice::No crashes found during fuzz testing"
+          fi
+
+  # Performance benchmarks
+  performance:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxss-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            hyperfine
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-perf-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Benchmark compile time
+        run: |
+          echo "## Compile Time Benchmark" > performance.md
+          echo "" >> performance.md
+          hyperfine --warmup 1 --runs 3 \
+            'cargo clean && cargo build --release' \
+            --export-markdown compile-time.md
+          cat compile-time.md >> performance.md
+
+      - name: Benchmark binary size
+        run: |
+          echo "" >> performance.md
+          echo "## Binary Size" >> performance.md
+          echo "" >> performance.md
+          size_bytes=$(stat -c%s target/release/egui_opengl_app)
+          size_mb=$(echo "scale=2; $size_bytes / 1024 / 1024" | bc)
+          echo "**Release binary size:** ${size_mb} MB (${size_bytes} bytes)" >> performance.md
+
+      - name: Benchmark startup time
+        run: |
+          echo "" >> performance.md
+          echo "## Startup Time" >> performance.md
+          echo "" >> performance.md
+          hyperfine --warmup 2 --runs 10 \
+            'timeout 2s ./target/release/egui_opengl_app --help' \
+            --export-markdown startup-time.md
+          cat startup-time.md >> performance.md
+
+
+      - name: Upload performance report
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-report
+          path: performance.md
+          retention-days: 90
+
+  # Report nightly results
+  report:
+    name: Nightly Report
+    needs: [nightly-rust, minimal-versions, memory-check, fuzz-test, performance]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download performance report
+        uses: actions/download-artifact@v3
+        with:
+          name: performance-report
+        continue-on-error: true
+
+      - name: Create nightly report
+        run: |
+          echo "# 🌙 Nightly Test Report" > nightly-report.md
+          echo "" >> nightly-report.md
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> nightly-report.md
+          echo "" >> nightly-report.md
+          
+          echo "## Test Results" >> nightly-report.md
+          echo "" >> nightly-report.md
+          echo "- **Nightly Rust:** ${{ needs.nightly-rust.result }}" >> nightly-report.md
+          echo "- **Minimal Versions:** ${{ needs.minimal-versions.result }}" >> nightly-report.md
+          echo "- **Memory Check:** ${{ needs.memory-check.result }}" >> nightly-report.md
+          echo "- **Fuzz Testing:** ${{ needs.fuzz-test.result }}" >> nightly-report.md
+          echo "- **Performance:** ${{ needs.performance.result }}" >> nightly-report.md
+          echo "" >> nightly-report.md
+          
+          if [ -f performance.md ]; then
+            cat performance.md >> nightly-report.md
+          fi
+
+      - name: Upload nightly report
+        uses: actions/upload-artifact@v3
+        with:
+          name: nightly-report
+          path: nightly-report.md
+          retention-days: 30

@@ -1,0 +1,72 @@
+# GitHub Dependabot configuration for automated dependency updates
+
+version: 2
+updates:
+  # Enable version updates for Rust/Cargo
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "@octocat"  # Replace with actual maintainer GitHub usernames
+    assignees:
+      - "@octocat"  # Replace with actual maintainer GitHub usernames
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "rust"
+    # Group related updates together
+    groups:
+      egui-ecosystem:
+        patterns:
+          - "egui*"
+        update-types:
+          - "minor"
+          - "patch"
+      opengl-ecosystem:
+        patterns:
+          - "glow*"
+          - "glutin*"
+          - "winit*"
+        update-types:
+          - "minor"
+          - "patch"
+      math-libraries:
+        patterns:
+          - "nalgebra*"
+          - "glm*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Ignore certain updates
+    ignore:
+      # Ignore major version updates for critical dependencies
+      - dependency-name: "egui"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "winit"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "glutin"
+        update-types: ["version-update:semver-major"]
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "github-actions"
+      - "ci/cd"

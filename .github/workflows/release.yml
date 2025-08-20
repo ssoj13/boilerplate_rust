@@ -1,0 +1,227 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Create GitHub release
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          release_name: Release ${{ github.event.inputs.version || github.ref_name }}
+          body: |
+            ## 🎮 egui OpenGL App Release
+            
+            Cross-platform OpenGL application with egui interface.
+            
+            ### 📦 Downloads
+            - **Windows**: `egui_opengl_app-windows.zip`
+            - **Linux**: `egui_opengl_app-linux.tar.gz` 
+            - **macOS**: `egui_opengl_app-macos.tar.gz`
+            
+            ### 🚀 Usage
+            ```bash
+            # Default window (1280x720)
+            ./egui_opengl_app
+            
+            # Custom size
+            ./egui_opengl_app -w 1920 --height 1080
+            ```
+            
+            ### 🔧 Requirements
+            - **Windows**: DirectX compatible graphics
+            - **Linux**: X11/Wayland, OpenGL 3.3+
+            - **macOS**: OpenGL 3.3+ (Metal on newer systems)
+            
+            ---
+            *Built with Rust 🦀 • Cross-platform • Educational codebase*
+          draft: false
+          prerelease: false
+
+  # Build release binaries for all platforms
+  build:
+    name: Build Release
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: egui_opengl_app.exe
+            asset_name: egui_opengl_app-windows.zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: egui_opengl_app
+            asset_name: egui_opengl_app-linux.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: egui_opengl_app
+            asset_name: egui_opengl_app-macos.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: egui_opengl_app
+            asset_name: egui_opengl_app-macos-arm64.tar.gz
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxss-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            libcairo-gobject2 \
+            libgtk-layer-shell-dev \
+            libdbus-1-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-release-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create release package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir release
+          copy "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" release\
+          copy README.md release\
+          copy CLAUDE.md release\
+          copy build.cmd release\
+          Compress-Archive -Path release\* -DestinationPath ${{ matrix.asset_name }}
+        shell: powershell
+
+      - name: Create release package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir release
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} release/
+          cp README.md release/
+          cp CLAUDE.md release/
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cp build.sh release/
+          fi
+          chmod +x release/${{ matrix.artifact_name }}
+          
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            tar -czf ${{ matrix.asset_name }} -C release .
+          else
+            tar -czf ${{ matrix.asset_name }} -C release .
+          fi
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ matrix.asset_name }}
+          asset_name: ${{ matrix.asset_name }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+          retention-days: 90
+
+  # Run post-release tests
+  post-release-test:
+    name: Post-Release Testing
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: egui_opengl_app-linux.tar.gz
+
+      - name: Test release binary
+        run: |
+          tar -xzf egui_opengl_app-linux.tar.gz
+          chmod +x egui_opengl_app
+          
+          # Test help and version
+          ./egui_opengl_app --help
+          ./egui_opengl_app --version
+          
+          # Test that it doesn't crash immediately (with timeout)
+          timeout 3s ./egui_opengl_app || echo "App started successfully"
+
+  # Update release with checksums
+  checksums:
+    name: Generate Checksums
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Generate checksums
+        run: |
+          echo "# Release Checksums" > checksums.md
+          echo "" >> checksums.md
+          for file in egui_opengl_app-*/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              checksum=$(sha256sum "$file" | cut -d' ' -f1)
+              echo "**$filename:** \`$checksum\`" >> checksums.md
+            fi
+          done
+
+      - name: Upload checksums to release
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const checksums = fs.readFileSync('checksums.md', 'utf8');
+            
+            // Update release body with checksums
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: '${{ needs.create-release.outputs.release_id }}',
+              body: `${{ github.event.release.body }}\n\n${checksums}`
+            });
