@@ -18,7 +18,7 @@ bytemuck = "1.19"
 rfd = "0.15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-dirs = "5.0"
+dirs = "6.0"
 
 [dev-dependencies]
 
