@@ -148,9 +148,10 @@ impl ApplicationHandler for App {
             })
         });
 
-        // Try to enable VSync (limits framerate to monitor refresh rate)
-        if let Err(e) = gl_surface.set_swap_interval(&gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap())) {
-            eprintln!("Failed to set vsync: {:?}", e);  // eprintln! = print to stderr
+        // Disable VSync on Wayland to avoid blocking issues that can cause segfaults
+        // See: https://github.com/rust-windowing/winit/issues/2891
+        if let Err(e) = gl_surface.set_swap_interval(&gl_context, SwapInterval::DontWait) {
+            eprintln!("Failed to disable vsync: {:?}", e);  // eprintln! = print to stderr
             // Note: if let Err(e) = ... is pattern matching on Result<T, E>
         }
 
@@ -340,5 +341,8 @@ fn main() {
     };
     
     // Run the event loop - this takes ownership of app and never returns!
-    let _ = event_loop.run_app(&mut app);  // _ ignores the Result return value
+    eprintln!("Starting event loop...");
+    let result = event_loop.run_app(&mut app);
+    eprintln!("Event loop ended with result: {:?}", result);
+    eprintln!("Main function ending...");
 }  // End of main - program ends here (if it ever reaches here)
