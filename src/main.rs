@@ -148,9 +148,10 @@ impl ApplicationHandler for App {
             })
         });
 
-        // Try to enable VSync (limits framerate to monitor refresh rate)
-        if let Err(e) = gl_surface.set_swap_interval(&gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap())) {
-            eprintln!("Failed to set vsync: {:?}", e);  // eprintln! = print to stderr
+        // Disable VSync on Wayland to avoid blocking issues that can cause segfaults
+        // See: https://github.com/rust-windowing/winit/issues/2891
+        if let Err(e) = gl_surface.set_swap_interval(&gl_context, SwapInterval::DontWait) {
+            eprintln!("Failed to disable vsync: {:?}", e);  // eprintln! = print to stderr
             // Note: if let Err(e) = ... is pattern matching on Result<T, E>
         }
 
@@ -315,6 +316,68 @@ impl ApplicationHandler for App {
     }
 }  // End of ApplicationHandler impl
 
+// Implement Drop trait to ensure proper cleanup order
+impl Drop for App {
+    fn drop(&mut self) {
+        eprintln!("App::drop() called - starting cleanup");
+        
+        // Critical: Clean up OpenGL/Window resources in correct order for Wayland
+        // The Wayland connection must be dropped last
+        
+        // 1. Drop app state first (just data, no system resources)
+        eprintln!("  Dropping app state...");
+        self.app_state = None;
+        eprintln!("  App state dropped");
+        
+        // 2. Drop renderer and painter (uses GL context)
+        eprintln!("  Dropping renderer...");
+        self.renderer = None;
+        eprintln!("  Renderer dropped");
+        
+        eprintln!("  Dropping painter...");
+        self.painter = None;
+        eprintln!("  Painter dropped");
+        
+        // 3. Drop egui-winit state
+        eprintln!("  Dropping egui-winit state...");
+        self.egui_winit = None;
+        eprintln!("  Egui-winit state dropped");
+        
+        // 4. Drop GL context reference (Arc)
+        eprintln!("  Dropping GL context reference...");
+        self.gl = None;
+        eprintln!("  GL context reference dropped");
+        
+        // 5. Make context not current and drop it
+        eprintln!("  Handling GL context...");
+        if let Some(context) = self.gl_context.take() {
+            eprintln!("    Making context not current...");
+            if let Ok(context) = context.make_not_current() {
+                eprintln!("    Context made not current, dropping...");
+                drop(context);
+                eprintln!("    Context dropped");
+            }
+        }
+        
+        // 6. Drop surface
+        eprintln!("  Dropping GL surface...");
+        self.gl_surface = None;
+        eprintln!("  GL surface dropped");
+        
+        // 7. Drop display
+        eprintln!("  Dropping GL display...");
+        self.gl_display = None;
+        eprintln!("  GL display dropped");
+        
+        // 8. Drop window last (contains Wayland connection)
+        eprintln!("  Dropping window...");
+        self.window = None;
+        eprintln!("  Window dropped");
+        
+        eprintln!("App::drop() completed successfully");
+    }
+}
+
 // The main function - entry point of our program!
 fn main() {
     // Load configuration first - this handles file I/O and default creation
@@ -340,5 +403,8 @@ fn main() {
     };
     
     // Run the event loop - this takes ownership of app and never returns!
-    let _ = event_loop.run_app(&mut app);  // _ ignores the Result return value
+    eprintln!("Starting event loop...");
+    let result = event_loop.run_app(&mut app);
+    eprintln!("Event loop ended with result: {:?}", result);
+    eprintln!("Main function ending...");
 }  // End of main - program ends here (if it ever reaches here)
