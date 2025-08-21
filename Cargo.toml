@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-egui = "0.29"
-egui_glow = "0.29"
-egui-winit = "0.29"
+egui = "0.32"
+egui_glow = "0.32"
+egui-winit = "0.32"
 glow = "0.16"
 glutin = "0.32"
 glutin-winit = "0.5"
