@@ -1,41 +1,25 @@
-name: Release
+name: Build
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-    steps:
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-  build-and-upload:
-    name: Build and Upload Release Assets
-    needs: create-release
+  build:
+    name: Build and Package
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
-            asset_name: egui_opengl_app-linux.zip
+            target: linux
           - os: windows-latest
-            asset_name: egui_opengl_app-windows.zip
+            target: windows
     runs-on: ${{ matrix.os }}
     
     steps:
@@ -62,6 +46,9 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
+      - name: Build documentation
+        run: cargo doc --all-features --no-deps
+
       - name: Create Linux release package
         if: runner.os == 'Linux'
         run: |
@@ -69,7 +56,7 @@ jobs:
           cp target/release/egui_opengl_app release/
           cp README.md release/
           chmod +x release/egui_opengl_app
-          zip -r ${{ matrix.asset_name }} release/
+          zip -r egui_opengl_app-linux.zip release/
 
       - name: Create Windows release package
         if: runner.os == 'Windows'
@@ -78,14 +65,27 @@ jobs:
           mkdir release
           copy "target\release\egui_opengl_app.exe" release\
           copy README.md release\
-          Compress-Archive -Path release\* -DestinationPath ${{ matrix.asset_name }}
+          Compress-Archive -Path release\* -DestinationPath egui_opengl_app-windows.zip
 
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ matrix.asset_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/zip
+          name: egui_opengl_app-linux
+          path: egui_opengl_app-linux.zip
+          retention-days: 90
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: egui_opengl_app-windows
+          path: egui_opengl_app-windows.zip
+          retention-days: 90
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: target/doc/
+          retention-days: 30
