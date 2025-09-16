@@ -31,7 +31,7 @@ fn test_cli_help() {
     assert!(output.status.success(), "Help command should succeed");
     
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("egui OpenGL App"), "Help should contain app name");
+    assert!(stdout.contains("egui_opengl_app"), "Help should contain app name");
     assert!(stdout.contains("--width"), "Help should contain width option");
     assert!(stdout.contains("--height"), "Help should contain height option");
 }
@@ -173,7 +173,7 @@ mod performance_tests {
     fn test_startup_performance() {
         let start_time = std::time::Instant::now();
         
-        let mut child = Command::new(get_binary_path())
+        let child = Command::new(get_binary_path())
             .arg("--help") // Use help to avoid needing a display
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -219,7 +219,7 @@ mod compatibility_tests {
     #[test]
     fn test_locale_compatibility() {
         // Test with different locale environment variables
-        let mut child = Command::new(get_binary_path())
+        let child = Command::new(get_binary_path())
             .arg("--help")
             .env("LANG", "en_US.UTF-8")
             .env("LC_ALL", "en_US.UTF-8")

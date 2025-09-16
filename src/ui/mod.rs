@@ -111,12 +111,12 @@ fn show_menu(ctx: &egui::Context, app_state: &mut AppState) {
 
     // Create menu bar at top of window
     egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-        egui::menu::bar(ui, |ui| {  // egui's menu bar container
+        egui::MenuBar::new().ui(ui, |ui| {  // egui's menu bar container
             // File menu dropdown
             ui.menu_button("File", |ui| {  // ui parameter is for inside the dropdown
                 if ui.button("Open").clicked() {
                     app_state.open_file_dialog();  // Set flag to show dialog next frame
-                    ui.close_menu();               // Close dropdown after click
+                    ui.close();               // Close dropdown after click
                 }
                 
                 ui.separator();  // Visual separator in menu
@@ -130,7 +130,7 @@ fn show_menu(ctx: &egui::Context, app_state: &mut AppState) {
             ui.menu_button("Help", |ui| {
                 if ui.button("About").clicked() {
                     app_state.status_text = "egui OpenGL App v0.1.0".to_string();
-                    ui.close_menu();  // Close dropdown
+                    ui.close();  // Close dropdown
                 }
             });
         });  // End of menu bar
