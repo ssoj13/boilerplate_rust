@@ -255,6 +255,8 @@ The project uses a comprehensive CI/CD pipeline with multiple workflows:
 - **Asset packaging** with documentation
 - **Post-release verification**
 
+**Note:** For the release workflow to work properly when pushing tags, you need to set up a Personal Access Token (PAT) as a repository secret. See `.github/README.md` for detailed instructions.
+
 ### GUI Application Testing Challenges
 
 Special considerations for testing a GUI/OpenGL application:
