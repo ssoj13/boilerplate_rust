@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-egui = "0.32.1"
+egui = "0.33.0"
 egui_glow = "0.32.1"
 egui-winit = "0.32.1"
 glow = "0.16.0"
